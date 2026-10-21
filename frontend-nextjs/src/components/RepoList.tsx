@@ -39,22 +39,22 @@ export default function RepoList({ user, onSelectRepo, onCustomGitUrl }: RepoLis
   // Smart resolve GitHub username (handles Gmail vs GitHub handle mismatch)
   const resolveHandle = (u: typeof user) => {
     if (!u) return 'Niladri035';
-    // If username is already a recognized handle (like Niladri200313)
-    if (u.username && !u.username.includes('@') && u.username !== 'user' && u.username !== 'santraniladri57' && u.username !== 'niladrisantra276') {
-      return u.username;
-    }
-    // If user's name is a single-word handle (like Niladri200313)
-    if (u.name && !u.name.includes(' ') && u.name !== 'Developer' && u.name !== 'User') {
-      return u.name;
-    }
     const email = (u.email || '').toLowerCase().trim();
-    if (email === 'niladrisantra276@gmail.com') {
+
+    // Priority 1: Direct match for known emails and handles
+    if (email.includes('200313') || email === 'niladrisantra276@gmail.com') {
       return 'Niladri200313';
     }
-    if (email === 'santraniladri57@gmail.com' || email === 'santraniladri@gmail.com') {
+    if (email.includes('035') || email.includes('57') || email.includes('santraniladri')) {
       return 'Niladri035';
     }
-    return u.username || 'Niladri035';
+
+    // Priority 2: If username is an explicit valid GitHub handle
+    if (u.username && !u.username.includes('@') && u.username !== 'developer' && u.username !== 'user') {
+      return u.username;
+    }
+
+    return 'Niladri035';
   };
 
   const initialHandle = resolveHandle(user);
