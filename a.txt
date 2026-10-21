@@ -1,0 +1,7 @@
+cd c:\Users\santr\Documents\Video\Vercel-clone
+git init
+git add api-server s3-reverse-proxy frontend-nextjs build-server
+git commit -m "Vercel clone production setup"
+git branch -M main
+git remote add origin https://github.com/YOUR_GITHUB_USERNAME/vercel-clone.git
+git push -u origin main

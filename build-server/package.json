@@ -1,0 +1,19 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1154.0",
+    "dotenv": "^18.0.8",
+    "ioredis": "^5.4.1",
+    "mime-types": "^3.0.2"
+  },
+  "name": "vercel-clone",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
