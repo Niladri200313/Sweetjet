@@ -57,7 +57,13 @@ db.exec(`
 
 export const auth = betterAuth({
   database: db,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: process.env.BETTER_AUTH_URL || (process.env.NODE_ENV === "production" ? "https://sweetjet.site" : "http://localhost:3000"),
+  trustedOrigins: [
+    "https://sweetjet.site",
+    "https://www.sweetjet.site",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+  ],
   secret: process.env.BETTER_AUTH_SECRET || "vercel_clone_default_secret_fallback_key",
   socialProviders: {
     github: {
