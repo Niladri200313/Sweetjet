@@ -70,11 +70,11 @@ export const auth = betterAuth({
       clientId: process.env.GITHUB_CLIENT_ID || "Ov23lig1hSbsuttQts1N",
       clientSecret: process.env.GITHUB_CLIENT_SECRET || "fc84b40ba43a77dcc6461fa59048df9d292d7c82",
     },
-    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+    ...(process.env.GOOGLE_CLIENT_ID
       ? {
           google: {
             clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
           },
         }
       : {}),
