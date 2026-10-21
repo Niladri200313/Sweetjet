@@ -26,13 +26,28 @@ export default function Home() {
 
           // Dynamically detect GitHub username for the logged in user
           let githubUsername = u.name && !u.name.includes(' ') ? u.name : '';
+          
           if (!githubUsername) {
             if (email === 'niladrisantra276@gmail.com') {
               githubUsername = 'Niladri200313';
             } else if (email === 'santraniladri57@gmail.com' || email === 'santraniladri@gmail.com') {
               githubUsername = 'Niladri035';
             } else {
-              githubUsername = email.split('@')[0];
+              try {
+                // Auto-lookup connected GitHub profile using the Google email
+                const ghSearch = await fetch(`https://api.github.com/search/users?q=${encodeURIComponent(email)}`);
+                if (ghSearch.ok) {
+                  const data = await ghSearch.json();
+                  if (data.items && data.items.length > 0) {
+                    githubUsername = data.items[0].login;
+                  }
+                }
+              } catch (e) {
+                // fallback
+              }
+              if (!githubUsername) {
+                githubUsername = email.split('@')[0];
+              }
             }
           }
 
