@@ -19,7 +19,7 @@ export default function Home() {
   useEffect(() => {
     async function loadUserSession() {
       try {
-        const session = await authClient.getSession();
+        const session = await (authClient as any).getSession();
         if (session?.data?.user) {
           const u = session.data.user;
           const email = (u.email || '').toLowerCase().trim();
