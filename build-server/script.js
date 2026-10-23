@@ -264,16 +264,73 @@ async function init() {
 
             // If Next.js output directory is .next:
             if (path.basename(finalOutputDir) === '.next') {
-                // Mirror static directory to _next/static
+                publishLog('⚡ Preparing Next.js static output (Vercel Build Output format)...');
+
+                // 1. Copy App Router pre-rendered HTML (.next/server/app/**/*.html) to root
+                const appDir = path.join(finalOutputDir, 'server', 'app');
+                if (fs.existsSync(appDir)) {
+                    const copyAppHtml = (src, dest) => {
+                        const entries = fs.readdirSync(src, { withFileTypes: true });
+                        for (const entry of entries) {
+                            const srcPath = path.join(src, entry.name);
+                            const destPath = path.join(dest, entry.name);
+                            if (entry.isDirectory()) {
+                                fs.mkdirSync(destPath, { recursive: true });
+                                copyAppHtml(srcPath, destPath);
+                            } else if (entry.name.endsWith('.html') || entry.name.endsWith('.rsc') || entry.name.endsWith('.json')) {
+                                fs.mkdirSync(dest, { recursive: true });
+                                fs.copyFileSync(srcPath, destPath);
+                                // Create directory index.html (e.g. about.html -> about/index.html)
+                                if (entry.name.endsWith('.html') && entry.name !== 'index.html') {
+                                    const dirName = entry.name.replace(/\.html$/, '');
+                                    const subDir = path.join(dest, dirName);
+                                    fs.mkdirSync(subDir, { recursive: true });
+                                    fs.copyFileSync(srcPath, path.join(subDir, 'index.html'));
+                                }
+                            }
+                        }
+                    };
+                    copyAppHtml(appDir, finalOutputDir);
+                    publishLog('📄 Extracted and promoted App Router HTML pages to root');
+                }
+
+                // 2. Copy Pages Router pre-rendered HTML (.next/server/pages/**/*.html)
+                const pagesDir = path.join(finalOutputDir, 'server', 'pages');
+                if (fs.existsSync(pagesDir)) {
+                    const copyPagesHtml = (src, dest) => {
+                        const entries = fs.readdirSync(src, { withFileTypes: true });
+                        for (const entry of entries) {
+                            const srcPath = path.join(src, entry.name);
+                            const destPath = path.join(dest, entry.name);
+                            if (entry.isDirectory()) {
+                                fs.mkdirSync(destPath, { recursive: true });
+                                copyPagesHtml(srcPath, destPath);
+                            } else if (entry.name.endsWith('.html') || entry.name.endsWith('.json')) {
+                                fs.mkdirSync(dest, { recursive: true });
+                                fs.copyFileSync(srcPath, destPath);
+                                if (entry.name.endsWith('.html') && entry.name !== 'index.html') {
+                                    const dirName = entry.name.replace(/\.html$/, '');
+                                    const subDir = path.join(dest, dirName);
+                                    fs.mkdirSync(subDir, { recursive: true });
+                                    fs.copyFileSync(srcPath, path.join(subDir, 'index.html'));
+                                }
+                            }
+                        }
+                    };
+                    copyPagesHtml(pagesDir, finalOutputDir);
+                    publishLog('📄 Extracted and promoted Pages Router HTML pages to root');
+                }
+
+                // 3. Mirror static directory to _next/static
                 const staticSrc = path.join(finalOutputDir, 'static');
                 const nextStaticDest = path.join(finalOutputDir, '_next', 'static');
-                if (fs.existsSync(staticSrc) && !fs.existsSync(nextStaticDest)) {
+                if (fs.existsSync(staticSrc)) {
                     fs.mkdirSync(path.join(finalOutputDir, '_next'), { recursive: true });
                     fs.cpSync(staticSrc, nextStaticDest, { recursive: true });
                     publishLog(`📦 Mirrored Next.js static assets to _next/static`);
                 }
 
-                // Also copy public/ assets (images, icons) into output root
+                // 4. Copy public/ assets (images, icons) into output root
                 const publicDir = path.join(activeDir, 'public');
                 if (fs.existsSync(publicDir)) {
                     fs.cpSync(publicDir, finalOutputDir, { recursive: true });
