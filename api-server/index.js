@@ -102,7 +102,7 @@ app.use('/api/me', forwardToNextAuth);
 
 app.use(express.json())
 
-app.post('/project', async (req, res) => {
+app.post(['/project', '/api/project'], async (req, res) => {
     const { gitURL, slug, env } = req.body
     const projectSlug = slug ? slug : generateSlug()
 

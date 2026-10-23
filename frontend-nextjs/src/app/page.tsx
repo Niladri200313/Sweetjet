@@ -85,9 +85,11 @@ export default function Home() {
     envVariables: EnvVariable[];
   }) => {
     try {
-      const apiServerUrl = process.env.NEXT_PUBLIC_API_SERVER_URL || 'http://localhost:9000';
+      const apiEndpoint = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+        ? '/api/project'
+        : (process.env.NEXT_PUBLIC_API_SERVER_URL ? `${process.env.NEXT_PUBLIC_API_SERVER_URL}/project` : 'http://localhost:9000/project');
 
-      const res = await fetch(`${apiServerUrl}/project`, {
+      const res = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
