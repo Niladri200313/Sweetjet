@@ -22,18 +22,20 @@ export default function Home() {
         const session = await (authClient as any).getSession();
         if (session?.data?.user) {
           const u = session.data.user;
-          const email = (u.email || '').toLowerCase().trim();
 
-          // Dynamically detect GitHub username for the logged in user
+          // Dynamically fetch real GitHub username from our API route
           let githubUsername = '';
-          if (email.includes('200313') || email === 'niladrisantra276@gmail.com') {
-            githubUsername = 'Niladri200313';
-          } else if (email.includes('035') || email.includes('57') || email.includes('santraniladri')) {
-            githubUsername = 'Niladri035';
-          } else if (u.name && !u.name.includes(' ') && u.name !== 'Developer' && u.name !== 'User') {
-            githubUsername = u.name;
-          } else {
-            githubUsername = 'Niladri035';
+          try {
+            const ghRes = await fetch('/api/me/github');
+            if (ghRes.ok) {
+              const ghData = await ghRes.json();
+              githubUsername = ghData.username || '';
+            }
+          } catch { /* API unavailable */ }
+
+          // Fallback: use display name stripped of spaces
+          if (!githubUsername) {
+            githubUsername = u.name?.replace(/\s+/g, '') || 'user';
           }
 
           setUser({
@@ -46,15 +48,12 @@ export default function Home() {
       } catch (err) {
         console.warn('Session check:', err);
       }
-      // Default fallback if not logged in yet
-      setUser({
-        name: 'Niladri Santra',
-        username: 'Niladri035',
-        email: 'santraniladri57@gmail.com',
-      });
+      // Not logged in
+      setUser(null);
     }
     loadUserSession();
   }, []);
+
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 

@@ -1,5 +1,6 @@
 const express = require('express')
 const httpProxy = require('http-proxy')
+const zlib = require('zlib')
 
 const app = express()
 const PORT = 8000
@@ -63,8 +64,18 @@ app.use((req, res) => {
     const resolvesTo = `${BASE_PATH}/${subdomain}`
 
     return proxy.web(req, res, { target: resolvesTo, changeOrigin: true }, (err) => {
-        console.error('Proxy error:', err.message);
-        res.status(502).send(`Could not load project "${subdomain}". Ensure build has finished uploading to S3.`);
+        // SPA Fallback: if asset not found, serve index.html (fixes React Router deep links)
+        if (err.code === 'ENOTFOUND' || err.message.includes('404') || err.message.includes('Not Found')) {
+            console.log(`[SPA Fallback] ${req.url} → index.html`);
+            req.url = '/';
+            proxy.web(req, res, { target: `${resolvesTo}/`, changeOrigin: true }, (e2) => {
+                console.error('SPA fallback error:', e2.message);
+                res.status(404).send(`Project "${subdomain}" not found or still building.`);
+            });
+        } else {
+            console.error('Proxy error:', err.message);
+            res.status(502).send(`Could not load project "${subdomain}". Ensure build has finished uploading to S3.`);
+        }
     })
 })
 

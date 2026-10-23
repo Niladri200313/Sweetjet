@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Github,
   GitBranch,
@@ -12,7 +12,9 @@ import {
   Rocket,
   ArrowLeft,
   Settings2,
-  KeyRound
+  KeyRound,
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
 import { RepoItem } from './RepoList';
 
@@ -34,25 +36,117 @@ interface ProjectConfigModalProps {
   }) => void;
 }
 
+// ── Framework detection ────────────────────────────────────────────────────
+type FrameworkInfo = {
+  name: string;
+  label: string;
+  buildCommand: string;
+  outputDirectory: string;
+  icon: string;
+};
+
+function detectFramework(pkg: Record<string, any> | null, hasIndexHtml: boolean): FrameworkInfo {
+  if (!pkg) {
+    if (hasIndexHtml) {
+      return { name: 'StaticHTML', label: 'Static HTML / CSS / JS', buildCommand: '', outputDirectory: './', icon: '🌐' };
+    }
+    return { name: 'Other', label: 'Custom / Other', buildCommand: 'npm run build', outputDirectory: 'dist', icon: '⚙️' };
+  }
+
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+  if (deps['next'])
+    return { name: 'Next.js', label: 'Next.js App', buildCommand: 'npm run build', outputDirectory: '.next', icon: '▲' };
+  if (deps['@remix-run/react'] || deps['@remix-run/node'])
+    return { name: 'Remix', label: 'Remix App', buildCommand: 'npm run build', outputDirectory: 'build', icon: '💿' };
+  if (deps['vite'])
+    return { name: 'Vite', label: 'Vite / React SPA', buildCommand: 'npm run build', outputDirectory: 'dist', icon: '⚡' };
+  if (deps['react-scripts'])
+    return { name: 'CRA', label: 'Create React App', buildCommand: 'npm run build', outputDirectory: 'build', icon: '⚛️' };
+  if (deps['vue'] || deps['@vue/cli-service'])
+    return { name: 'Vue', label: 'Vue.js App', buildCommand: 'npm run build', outputDirectory: 'dist', icon: '💚' };
+  if (deps['svelte'] || deps['@sveltejs/kit'])
+    return { name: 'Svelte', label: 'Svelte / SvelteKit', buildCommand: 'npm run build', outputDirectory: 'build', icon: '🧡' };
+  if (deps['astro'])
+    return { name: 'Astro', label: 'Astro Site', buildCommand: 'npm run build', outputDirectory: 'dist', icon: '🚀' };
+
+  const hasBuildScript = pkg.scripts?.build;
+  if (!hasBuildScript && hasIndexHtml)
+    return { name: 'StaticHTML', label: 'Static HTML / CSS / JS', buildCommand: '', outputDirectory: './', icon: '🌐' };
+
+  return { name: 'Other', label: 'Custom / Other', buildCommand: pkg.scripts?.build || 'npm run build', outputDirectory: 'dist', icon: '⚙️' };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectConfigModalProps) {
-  // Normalize slug from repo name
   const defaultSlug = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 18);
   const [slug, setSlug] = useState(defaultSlug || 'my-project');
   const [rootDirectory, setRootDirectory] = useState('./');
   const [preset, setPreset] = useState('Vite');
+  const [detectedFramework, setDetectedFramework] = useState<FrameworkInfo | null>(null);
+  const [isDetecting, setIsDetecting] = useState(true);
 
-  // Accordion Toggles
   const [showBuildSettings, setShowBuildSettings] = useState(false);
-  const [showEnvSettings, setShowEnvSettings] = useState(true); // Open by default as user requested!
+  const [showEnvSettings, setShowEnvSettings] = useState(true);
 
-  // Build settings
   const [buildCommand, setBuildCommand] = useState('npm run build');
   const [outputDirectory, setOutputDirectory] = useState('dist');
 
-  // Env variables
   const [envVariables, setEnvVariables] = useState<EnvVariable[]>([]);
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
+
+  // ── Auto-detect framework from GitHub ─────────────────────────────────
+  useEffect(() => {
+    async function autoDetect() {
+      setIsDetecting(true);
+      try {
+        const [owner, repoName] = repo.fullName.split('/');
+        const branch = repo.defaultBranch || 'main';
+
+        const [pkgRes, htmlRes] = await Promise.all([
+          fetch(`https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/package.json`),
+          fetch(`https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/index.html`),
+        ]);
+
+        const hasIndexHtml = htmlRes.ok;
+        let pkg: Record<string, any> | null = null;
+        if (pkgRes.ok) {
+          try { pkg = await pkgRes.json(); } catch { pkg = null; }
+        }
+
+        const fw = detectFramework(pkg, hasIndexHtml);
+        setDetectedFramework(fw);
+        setPreset(fw.name);
+        setBuildCommand(fw.buildCommand);
+        setOutputDirectory(fw.outputDirectory);
+      } catch {
+        setDetectedFramework(null);
+      } finally {
+        setIsDetecting(false);
+      }
+    }
+    autoDetect();
+  }, [repo.fullName, repo.defaultBranch]);
+
+  const handlePresetChange = (value: string) => {
+    setPreset(value);
+    const presets: Record<string, { buildCommand: string; outputDirectory: string }> = {
+      'Vite':       { buildCommand: 'npm run build', outputDirectory: 'dist' },
+      'Next.js':    { buildCommand: 'npm run build', outputDirectory: '.next' },
+      'CRA':        { buildCommand: 'npm run build', outputDirectory: 'build' },
+      'Vue':        { buildCommand: 'npm run build', outputDirectory: 'dist' },
+      'Svelte':     { buildCommand: 'npm run build', outputDirectory: 'build' },
+      'Astro':      { buildCommand: 'npm run build', outputDirectory: 'dist' },
+      'Remix':      { buildCommand: 'npm run build', outputDirectory: 'build' },
+      'StaticHTML': { buildCommand: '',              outputDirectory: './' },
+      'Other':      { buildCommand: 'npm run build', outputDirectory: 'dist' },
+    };
+    if (presets[value]) {
+      setBuildCommand(presets[value].buildCommand);
+      setOutputDirectory(presets[value].outputDirectory);
+    }
+  };
 
   const handleAddEnv = () => {
     if (!newKey.trim()) return;
@@ -79,7 +173,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
 
   return (
     <div className="w-full max-w-3xl mx-auto py-6 animate-in fade-in duration-200">
-      {/* Back to repos button */}
+      {/* Back button */}
       <button
         onClick={onBack}
         className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors mb-6 group"
@@ -88,7 +182,6 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
         <span>Back to repositories</span>
       </button>
 
-      {/* Main Configuration Card (Styled after user's Image 1 in soothing light UI) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-floating p-6 sm:p-8 space-y-7">
         {/* Title */}
         <div>
@@ -96,7 +189,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
           <p className="text-xs text-slate-500 mt-1">Configure deployment settings, presets, and environment variables.</p>
         </div>
 
-        {/* Importing from GitHub banner */}
+        {/* Repo banner */}
         <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="text-xs text-slate-400 font-medium">Importing from GitHub:</span>
@@ -111,11 +204,32 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
           </div>
         </div>
 
+        {/* ── Auto-detection badge ── */}
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border bg-slate-50 border-slate-200">
+          {isDetecting ? (
+            <>
+              <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+              <span className="text-xs text-slate-500">Detecting framework from repository…</span>
+            </>
+          ) : detectedFramework ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs text-slate-700 font-medium">
+                Detected: <span className="font-bold text-slate-900">{detectedFramework.icon} {detectedFramework.label}</span>
+              </span>
+              <span className="ml-auto text-[10px] text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded-full">auto</span>
+            </>
+          ) : (
+            <>
+              <span className="text-xs text-slate-500">⚙️ Could not detect framework — please select manually.</span>
+            </>
+          )}
+        </div>
+
         <p className="text-xs text-slate-600 font-medium">
           Choose where you want to create the project and give it a name.
         </p>
 
-        {/* Form fields */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Row 1: Team & Project Name */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -132,7 +246,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
               </div>
             </div>
 
-            {/* Project Name (Slug) */}
+            {/* Project Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-700">Project Name (Subdomain Slug)</label>
               <div className="relative">
@@ -145,7 +259,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition-all"
                 />
                 <span className="absolute right-3 top-2.5 text-[10px] text-slate-400 font-mono">
-                  .{window?.location?.hostname || 'localhost'}:8000
+                  .sweetjet.site
                 </span>
               </div>
             </div>
@@ -167,35 +281,33 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
               </div>
             </div>
 
-            {/* Framework Preset */}
+            {/* Framework Preset — auto-selected but overridable */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700">Application Preset</label>
+              <label className="text-xs font-semibold text-slate-700">
+                Application Preset
+                {!isDetecting && detectedFramework && (
+                  <span className="ml-2 text-[10px] text-emerald-600 font-normal">auto-detected</span>
+                )}
+              </label>
               <select
                 value={preset}
-                onChange={(e) => {
-                  setPreset(e.target.value);
-                  if (e.target.value === 'Vite') {
-                    setBuildCommand('npm run build');
-                    setOutputDirectory('dist');
-                  } else if (e.target.value === 'Next.js') {
-                    setBuildCommand('npm run build');
-                    setOutputDirectory('.next');
-                  } else {
-                    setBuildCommand('npm run build');
-                    setOutputDirectory('dist');
-                  }
-                }}
+                onChange={(e) => handlePresetChange(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-slate-400 transition-all"
               >
                 <option value="Vite">⚡ Vite / React SPA</option>
                 <option value="Next.js">▲ Next.js App</option>
-                <option value="CRA">⚛ Create React App</option>
-                <option value="Other">⚙ Custom / Other</option>
+                <option value="CRA">⚛️ Create React App</option>
+                <option value="Vue">💚 Vue.js</option>
+                <option value="Svelte">🧡 Svelte / SvelteKit</option>
+                <option value="Astro">🚀 Astro</option>
+                <option value="Remix">💿 Remix</option>
+                <option value="StaticHTML">🌐 Static HTML / CSS / JS</option>
+                <option value="Other">⚙️ Custom / Other</option>
               </select>
             </div>
           </div>
 
-          {/* Accordion 1: Build and Output Settings */}
+          {/* Accordion: Build and Output Settings */}
           <div className="border border-slate-200 rounded-xl overflow-hidden transition-all">
             <button
               type="button"
@@ -218,8 +330,12 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                       type="text"
                       value={buildCommand}
                       onChange={(e) => setBuildCommand(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 focus:outline-none focus:border-slate-400"
+                      placeholder={preset === 'StaticHTML' ? '(no build needed)' : 'npm run build'}
+                      className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 focus:outline-none focus:border-slate-400 placeholder:text-slate-300"
                     />
+                    {preset === 'StaticHTML' && (
+                      <p className="text-[10px] text-emerald-600">Static project — files uploaded directly to S3, no build needed!</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[11px] font-semibold text-slate-600">Output Directory</label>
@@ -235,7 +351,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
             )}
           </div>
 
-          {/* Accordion 2: Environment Variables (Requested specifically by user) */}
+          {/* Accordion: Environment Variables */}
           <div className="border border-slate-200 rounded-xl overflow-hidden transition-all">
             <button
               type="button"
@@ -246,7 +362,7 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                 <KeyRound className="w-3.5 h-3.5 text-slate-500" />
                 <span>Environment Variables</span>
                 {envVariables.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                     {envVariables.length}
                   </span>
                 )}
@@ -260,7 +376,6 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                   Inject environment variables into the AWS ECS Fargate container during build and deployment.
                 </p>
 
-                {/* Add new variable input row */}
                 <div className="flex flex-col sm:flex-row items-center gap-2">
                   <input
                     type="text"
@@ -287,7 +402,6 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                   </button>
                 </div>
 
-                {/* Table of added environment variables */}
                 {envVariables.length > 0 && (
                   <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
                     {envVariables.map((env, index) => (
@@ -301,7 +415,6 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
                           type="button"
                           onClick={() => handleRemoveEnv(index)}
                           className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                          title="Delete variable"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -313,14 +426,18 @@ export default function ProjectConfigModal({ repo, onBack, onDeploy }: ProjectCo
             )}
           </div>
 
-          {/* Submit Deploy Button (Big & sleek like Image 1) */}
+          {/* Deploy button */}
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-black text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
+              disabled={isDetecting}
+              className="w-full py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-black disabled:opacity-60 text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg active:scale-[0.99] flex items-center justify-center gap-2"
             >
-              <Rocket className="w-4 h-4 text-emerald-400" />
-              <span>Deploy</span>
+              {isDetecting ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /><span>Detecting framework…</span></>
+              ) : (
+                <><Rocket className="w-4 h-4 text-emerald-400" /><span>Deploy</span></>
+              )}
             </button>
           </div>
         </form>

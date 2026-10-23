@@ -246,14 +246,14 @@ export default function DeploymentLogs({ slug, gitURL, onDeployAnother }: Deploy
           <div className="space-y-0.5">
             <span className="font-semibold text-slate-900">🌐 Real-World Direct Access:</span>
             <p className="text-slate-500">
-              No DNS configuration needed! Open via direct path:{" "}
+              Your deployed project is live at:{" "}
               <a
-                href={`http://localhost:8000/${slug}/`}
+                href={`${process.env.NEXT_PUBLIC_REVERSE_PROXY_URL || 'http://localhost:8000'}/${slug}/`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-mono text-slate-800 underline font-semibold ml-1"
               >
-                http://localhost:8000/{slug}/
+                {`${process.env.NEXT_PUBLIC_REVERSE_PROXY_URL || 'http://localhost:8000'}/${slug}/`}
               </a>
             </p>
           </div>

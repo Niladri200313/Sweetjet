@@ -15,6 +15,7 @@ COPY package*.json .
 
 RUN npm install
 
+RUN sed -i 's/\r$//' /home/app/main.sh
 RUN chmod +x main.sh
 RUN chmod +x script.js
 
