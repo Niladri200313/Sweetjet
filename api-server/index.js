@@ -35,6 +35,8 @@ const config = {
     TASK: process.env.TASK_ARN || 'arn:aws:ecs:us-east-1:434658845641:task-definition/builder-task:3'
 }
 
+const http = require('http');
+
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
@@ -42,6 +44,51 @@ app.use((req, res, next) => {
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
+
+// Cloudflare Tunnel routes sweetjet.site/api/* to this server (port 9000).
+// Forward all /auth and /api/auth requests directly to Next.js (port 3000).
+const forwardToNextAuth = (req, res) => {
+    const targetPath = req.originalUrl.startsWith('/api/auth')
+        ? req.originalUrl
+        : `/api/auth${req.url}`;
+
+    const headers = {
+        ...req.headers,
+        host: req.headers.host || 'sweetjet.site',
+        'x-forwarded-host': req.headers.host || 'sweetjet.site',
+        'x-forwarded-proto': 'https'
+    };
+
+    const options = {
+        hostname: '127.0.0.1',
+        port: 3000,
+        path: targetPath,
+        method: req.method,
+        headers
+    };
+
+    const proxyReq = http.request(options, proxyRes => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+    });
+
+    proxyReq.on('error', err => {
+        console.error('[API Auth Forward Error]', err.message);
+        res.status(502).json({ error: 'Auth service unreachable' });
+    });
+
+    if (req.body && Object.keys(req.body).length > 0) {
+        const bodyData = JSON.stringify(req.body);
+        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxyReq.write(bodyData);
+        proxyReq.end();
+    } else {
+        req.pipe(proxyReq, { end: true });
+    }
+};
+
+app.use('/auth', forwardToNextAuth);
+app.use('/api/auth', forwardToNextAuth);
 
 app.use(express.json())
 
