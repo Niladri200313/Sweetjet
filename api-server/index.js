@@ -46,11 +46,19 @@ app.use((req, res, next) => {
 });
 
 // Cloudflare Tunnel routes sweetjet.site/api/* to this server (port 9000).
-// Forward all /auth and /api/auth requests directly to Next.js (port 3000).
+// Forward all non-project requests (like /auth, /me) directly to Next.js (port 3000).
 const forwardToNextAuth = (req, res) => {
-    const targetPath = req.originalUrl.startsWith('/api/auth')
-        ? req.originalUrl
-        : `/api/auth${req.url}`;
+    // If request has /api/ prefix, keep it. If Cloudflare stripped /api, prepend /api.
+    const baseUrl = req.baseUrl || '';
+    const reqPath = req.url || '';
+    const fullOriginal = req.originalUrl || (baseUrl + reqPath);
+    
+    let targetPath;
+    if (fullOriginal.startsWith('/api/')) {
+        targetPath = fullOriginal;
+    } else {
+        targetPath = `/api${baseUrl}${reqPath}`;
+    }
 
     const headers = {
         ...req.headers,
@@ -73,8 +81,8 @@ const forwardToNextAuth = (req, res) => {
     });
 
     proxyReq.on('error', err => {
-        console.error('[API Auth Forward Error]', err.message);
-        res.status(502).json({ error: 'Auth service unreachable' });
+        console.error('[API Next.js Forward Error]', err.message);
+        res.status(502).json({ error: 'Upstream service unreachable' });
     });
 
     if (req.body && Object.keys(req.body).length > 0) {
@@ -88,7 +96,9 @@ const forwardToNextAuth = (req, res) => {
 };
 
 app.use('/auth', forwardToNextAuth);
+app.use('/me', forwardToNextAuth);
 app.use('/api/auth', forwardToNextAuth);
+app.use('/api/me', forwardToNextAuth);
 
 app.use(express.json())
 
