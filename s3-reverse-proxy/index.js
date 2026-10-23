@@ -1,29 +1,23 @@
-const express = require('express')
-const httpProxy = require('http-proxy')
-const zlib = require('zlib')
+const express = require('express');
+const path = require('path');
 
-const app = express()
-const PORT = 8000
+const app = express();
+const PORT = process.env.PORT || 8000;
 
-const BASE_PATH = 'https://sweetjet.s3.us-east-1.amazonaws.com/__output'
+const BASE_PATH = 'https://sweetjet.s3.us-east-1.amazonaws.com/__output';
 
-const proxy = httpProxy.createProxy()
-
-app.use((req, res) => {
-    console.log(`[Proxy Request] Host: ${req.hostname} | URL: ${req.url}`);
+app.use(async (req, res) => {
     const hostname = req.hostname;
     let subdomain = hostname.split('.')[0];
 
-    // Support Path-based or Query-based slug for Real World / Tunnel URLs
-    // e.g. http://localhost:8000/p2/ OR https://tunnel.loca.lt/p2/
     const pathParts = req.url.split('?')[0].split('/').filter(Boolean);
     const querySlug = req.query.project || req.query.slug;
 
+    // Support Path-based or Query-based slug for Real World / Tunnel URLs
     if (subdomain === 'localhost' || subdomain === '127' || subdomain === 'sweetjet' || subdomain === 'www' || subdomain.includes('loca') || subdomain.includes('ngrok') || subdomain.includes('cloudflare')) {
         if (querySlug) {
             subdomain = querySlug;
         } else if (pathParts.length > 0 && !pathParts[0].includes('.')) {
-            // e.g. /p2 or /p2/assets/index.js
             subdomain = pathParts[0];
             const remainingPath = '/' + pathParts.slice(1).join('/');
             req.url = remainingPath === '' ? '/' : remainingPath;
@@ -61,32 +55,87 @@ app.use((req, res) => {
         }
     }
 
-    const resolvesTo = `${BASE_PATH}/${subdomain}`
+    const cleanPath = req.url.split('?')[0];
+    const hasExtension = path.extname(cleanPath) !== '';
 
-    return proxy.web(req, res, { target: resolvesTo, changeOrigin: true }, (err) => {
-        // SPA Fallback: if asset not found, serve index.html (fixes React Router deep links)
-        if (err.code === 'ENOTFOUND' || err.message.includes('404') || err.message.includes('Not Found')) {
-            console.log(`[SPA Fallback] ${req.url} → index.html`);
-            req.url = '/';
-            proxy.web(req, res, { target: `${resolvesTo}/`, changeOrigin: true }, (e2) => {
-                console.error('SPA fallback error:', e2.message);
-                res.status(404).send(`Project "${subdomain}" not found or still building.`);
-            });
-        } else {
-            console.error('Proxy error:', err.message);
-            res.status(502).send(`Could not load project "${subdomain}". Ensure build has finished uploading to S3.`);
-        }
-    })
-})
+    // Candidate S3 URLs to try in priority order:
+    const urlsToTry = [];
 
-proxy.on('proxyReq', (proxyReq, req, res) => {
-    const url = req.url;
-    if (url === '/' || url === '') {
-        if (!proxyReq.path.endsWith('/')) {
-            proxyReq.path += '/';
-        }
-        proxyReq.path += 'index.html';
+    if (cleanPath === '/' || cleanPath === '') {
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/index.html`);
+    } else if (hasExtension) {
+        // Direct asset request (e.g. /About.png, /assets/index.js, /favicon.ico)
+        urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}`);
+    } else {
+        // Clean URL route like /about:
+        // 1. Try /about.html (Next.js / Astro / SSG static HTML)
+        urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}.html`);
+        // 2. Try /about/index.html (Trailing slash SSG)
+        urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}/index.html`);
+        // 3. Try /index.html (SPA Fallback for React Router / SPA deep links)
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/index.html`);
     }
-})
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Reverse Proxy Running on Port ${PORT} (0.0.0.0)`))
+    try {
+        for (const s3Url of urlsToTry) {
+            const response = await fetch(s3Url);
+
+            // S3 returns 403 or 404 when object does not exist
+            if (response.ok) {
+                const contentType = response.headers.get('content-type') || '';
+                
+                // Do not serve S3 AccessDenied XML as valid content
+                if (contentType.includes('application/xml')) {
+                    continue;
+                }
+
+                if (contentType) {
+                    res.setHeader('Content-Type', contentType);
+                } else if (s3Url.endsWith('.html')) {
+                    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                }
+
+                res.setHeader('Cache-Control', 'public, max-age=3600');
+                res.status(200);
+
+                const reader = response.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    res.write(value);
+                }
+                return res.end();
+            }
+        }
+
+        // If none of the candidates exist on S3:
+        res.status(404).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>404 - Page Not Found</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0F172A; color: #F8FAFC; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }
+                    .box { background: #1E293B; border: 1px solid #334155; padding: 40px; border-radius: 16px; max-width: 450px; }
+                    h1 { margin-top: 0; font-size: 28px; }
+                    p { color: #94A3B8; font-size: 14px; }
+                    a { color: #38BDF8; text-decoration: none; font-weight: 600; }
+                </style>
+            </head>
+            <body>
+                <div class="box">
+                    <h1>404</h1>
+                    <p>The requested page on <strong>${subdomain}</strong> could not be found.</p>
+                    <a href="/">← Go to CloudDeploy</a>
+                </div>
+            </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error(`[Proxy Error for ${subdomain}]:`, err.message);
+        res.status(502).send(`Error fetching project from S3: ${err.message}`);
+    }
+});
+
+app.listen(PORT, '0.0.0.0', () => console.log(`Reverse Proxy Running on Port ${PORT} (0.0.0.0)`));
