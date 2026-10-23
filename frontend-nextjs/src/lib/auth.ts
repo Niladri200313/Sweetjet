@@ -55,26 +55,38 @@ db.exec(`
   );
 `);
 
+const resolveBaseURL = () => {
+  // If explicitly specified with an external domain (e.g. sweetjet.site)
+  if (process.env.BETTER_AUTH_URL && !process.env.BETTER_AUTH_URL.includes("localhost")) {
+    return process.env.BETTER_AUTH_URL;
+  }
+  // In production on EC2
+  if (process.env.NODE_ENV === "production") {
+    return "https://sweetjet.site";
+  }
+  return process.env.BETTER_AUTH_URL || "http://localhost:3000";
+};
+
 export const auth = betterAuth({
   database: db,
-  baseURL: process.env.BETTER_AUTH_URL || (process.env.NODE_ENV === "production" ? "https://sweetjet.site" : "http://localhost:3000"),
+  baseURL: resolveBaseURL(),
   trustedOrigins: [
     "https://sweetjet.site",
     "https://www.sweetjet.site",
     "http://localhost:3000",
     "http://127.0.0.1:3000"
   ],
-  secret: process.env.BETTER_AUTH_SECRET || "vercel_clone_default_secret_fallback_key",
+  secret: process.env.BETTER_AUTH_SECRET || "vercel_clone_super_secret_auth_key_2026_xyz",
   socialProviders: {
     github: {
       clientId: process.env.GITHUB_CLIENT_ID || "Ov23lig1hSbsuttQts1N",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || "fc84b40ba43a77dcc6461fa59048df9d292d7c82",
+      clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
     },
-    ...(process.env.GOOGLE_CLIENT_ID
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? {
           google: {
             clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           },
         }
       : {}),
