@@ -90,41 +90,82 @@ export default function DeploymentLogs({ slug, gitURL, onDeployAnother }: Deploy
       },
     ]);
 
-    // Connect to Socket.io on port 9002
+    // Socket.io connection attempt
     const socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 'http://localhost:9002';
-    const socket = io(socketServerUrl, {
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
+    try {
+      const socket = io(socketServerUrl, {
+        transports: ['websocket', 'polling'],
+        timeout: 5000,
+      });
+      socketRef.current = socket;
 
-    socket.on('connect', () => {
-      setIsConnected(true);
-      // Join project logs room
-      socket.emit('subscribe', `logs:${slug}`);
-    });
+      socket.on('connect', () => {
+        setIsConnected(true);
+        socket.emit('subscribe', `logs:${slug}`);
+      });
 
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-    });
+      socket.on('disconnect', () => {
+        // Will fallback to HTTP polling
+      });
 
-    socket.on('message', (message: string) => {
-      const entry = parseLogLine(message);
+      socket.on('message', (message: string) => {
+        const entry = parseLogLine(message);
+        setLogs((prev) => [...prev, entry]);
 
-      setLogs((prev) => [...prev, entry]);
+        const lower = entry.text.toLowerCase();
+        if (lower.includes('done') || lower.includes('process exited with code 0')) {
+          setStatus('ready');
+        } else if (lower.includes('build failed') || lower.includes('command failed')) {
+          setStatus('failed');
+        } else if (lower.includes('uploading')) {
+          setStatus('uploading');
+        } else if (lower.includes('cloning') || lower.includes('npm install') || lower.includes('build')) {
+          setStatus('building');
+        }
+      });
+    } catch (e) {}
 
-      // State progression detection
-      const lower = entry.text.toLowerCase();
-      if (lower.includes('done') || lower.includes('process exited with code 0')) {
-        setStatus('ready');
-      } else if (lower.includes('uploading')) {
-        setStatus('uploading');
-      } else if (lower.includes('cloning') || lower.includes('npm install') || lower.includes('vite build')) {
-        setStatus('building');
-      }
-    });
+    // HTTP Polling fallback (ensures logs stream smoothly through Cloudflare tunnel)
+    let isMounted = true;
+    const pollLogs = async () => {
+      if (!isMounted) return;
+      try {
+        const res = await fetch(`/api/logs/${slug}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
+          setIsConnected(true);
+          const newEntries: LogEntry[] = data.logs.map((msg: string) => parseLogLine(msg));
+          
+          setLogs(prev => {
+            const seen = new Set(prev.map(e => e.text));
+            const additions = newEntries.filter(e => !seen.has(e.text));
+            if (additions.length === 0) return prev;
+            return [...prev, ...additions];
+          });
+
+          // Update state from latest log lines
+          const allText = data.logs.join(' ').toLowerCase();
+          if (allText.includes('build failed') || allText.includes('command failed') || allText.includes('failed to compile')) {
+            setStatus('failed');
+          } else if (allText.includes('done') || allText.includes('process exited with code 0')) {
+            setStatus('ready');
+          } else if (allText.includes('uploading')) {
+            setStatus('uploading');
+          } else if (allText.includes('npm install') || allText.includes('build')) {
+            setStatus('building');
+          }
+        }
+      } catch (err) {}
+    };
+
+    const intervalId = setInterval(pollLogs, 1500);
+    pollLogs();
 
     return () => {
-      socket.disconnect();
+      isMounted = false;
+      clearInterval(intervalId);
+      if (socketRef.current) socketRef.current.disconnect();
     };
   }, [slug, gitURL]);
 

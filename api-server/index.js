@@ -152,15 +152,29 @@ app.post(['/project', '/api/project'], async (req, res) => {
     }
 })
 
+// In-memory cache for recent logs per project
+const projectLogs = new Map();
+
+app.get(['/logs/:slug', '/api/logs/:slug'], (req, res) => {
+    const slug = req.params.slug;
+    const logs = projectLogs.get(slug) || [];
+    res.json({ logs });
+});
+
 async function initRedisSubscribe() {
     console.log('Subscribed to logs....')
     subscriber.psubscribe('logs:*')
     subscriber.on('pmessage', (pattern, channel, message) => {
+        const slug = channel.replace('logs:', '');
+        if (!projectLogs.has(slug)) projectLogs.set(slug, []);
+        const list = projectLogs.get(slug);
+        list.push(message);
+        if (list.length > 500) list.shift();
+
         console.log(`[Redis Log] ${channel} -> ${message.substring(0, 80)}`);
         io.to(channel).emit('message', message)
     })
 }
-
 
 initRedisSubscribe()
 
