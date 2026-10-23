@@ -213,9 +213,17 @@ async function init() {
             let finalOutputDir = strategy.outputDir;
             if (!fs.existsSync(finalOutputDir)) {
                 publishLog(`⚠️ Expected output dir not found at "${finalOutputDir}". Scanning common output folders...`);
-                for (const candidate of ['dist', 'build', 'out', '.output/public', 'public', '.next']) {
+                // Priority order: .next comes before public!
+                for (const candidate of ['dist', 'build', 'out', '.output/public', '.next', 'public']) {
                     const candidatePath = path.join(activeDir, candidate);
-                    if (fs.existsSync(candidatePath) && fs.readdirSync(candidatePath).length > 0) {
+                    if (!fs.existsSync(candidatePath)) continue;
+
+                    // Do NOT pick 'public' as build folder if it has no index.html (Next.js public folder only holds assets)
+                    if (candidate === 'public' && !fs.existsSync(path.join(candidatePath, 'index.html')) && strategy.framework !== 'Gatsby') {
+                        continue;
+                    }
+
+                    if (fs.readdirSync(candidatePath).length > 0) {
                         finalOutputDir = candidatePath;
                         publishLog(`📁 Found build output at: "${candidate}"`);
                         break;
@@ -224,7 +232,7 @@ async function init() {
             }
 
             if (!fs.existsSync(finalOutputDir)) {
-                throw new Error(`Could not find build output directory. Checked: ${strategy.outputDirName}, dist, build, out, public`);
+                throw new Error(`Could not find build output directory. Checked: ${strategy.outputDirName}, dist, build, out, .next`);
             }
 
             // Ensure root index.html exists so S3 reverse proxy never gets 403 AccessDenied
@@ -254,14 +262,22 @@ async function init() {
                 }
             }
 
-            // If Next.js output directory is .next, mirror static directory to _next/static
+            // If Next.js output directory is .next:
             if (path.basename(finalOutputDir) === '.next') {
+                // Mirror static directory to _next/static
                 const staticSrc = path.join(finalOutputDir, 'static');
                 const nextStaticDest = path.join(finalOutputDir, '_next', 'static');
                 if (fs.existsSync(staticSrc) && !fs.existsSync(nextStaticDest)) {
                     fs.mkdirSync(path.join(finalOutputDir, '_next'), { recursive: true });
                     fs.cpSync(staticSrc, nextStaticDest, { recursive: true });
                     publishLog(`📦 Mirrored Next.js static assets to _next/static`);
+                }
+
+                // Also copy public/ assets (images, icons) into output root
+                const publicDir = path.join(activeDir, 'public');
+                if (fs.existsSync(publicDir)) {
+                    fs.cpSync(publicDir, finalOutputDir, { recursive: true });
+                    publishLog(`📦 Copied public/ assets into build output`);
                 }
             }
 
