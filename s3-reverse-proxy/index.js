@@ -55,7 +55,10 @@ app.use(async (req, res) => {
         }
     }
 
-    const cleanPath = req.url.split('?')[0];
+    let cleanPath = req.url.split('?')[0];
+    if (cleanPath.length > 1 && cleanPath.endsWith('/')) {
+        cleanPath = cleanPath.slice(0, -1);
+    }
     const hasExtension = path.extname(cleanPath) !== '';
 
     // Candidate S3 URLs to try in priority order:
@@ -63,17 +66,36 @@ app.use(async (req, res) => {
 
     if (cleanPath === '/' || cleanPath === '') {
         urlsToTry.push(`${BASE_PATH}/${subdomain}/index.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app/index.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/pages/index.html`);
+    } else if (cleanPath.startsWith('/_next/')) {
+        // Next.js client chunks and assets mapping
+        urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath.replace('/_next/', '/')}`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/static${cleanPath.replace('/_next/static', '')}`);
     } else if (hasExtension) {
         // Direct asset request (e.g. /About.png, /assets/index.js, /favicon.ico)
         urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app${cleanPath}`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/static${cleanPath}`);
     } else {
-        // Clean URL route like /about:
-        // 1. Try /about.html (Next.js / Astro / SSG static HTML)
+        // Clean URL route like /about, /contact, /project/stock-sim:
+        // 1. Direct SSG HTML
         urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}.html`);
-        // 2. Try /about/index.html (Trailing slash SSG)
         urlsToTry.push(`${BASE_PATH}/${subdomain}${cleanPath}/index.html`);
-        // 3. Try /index.html (SPA Fallback for React Router / SPA deep links)
+        
+        // 2. Next.js App Router pre-rendered server/app HTML pages
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app${cleanPath}.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app${cleanPath}/page.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app${cleanPath}/index.html`);
+        
+        // 3. Next.js Pages Router pre-rendered server/pages HTML pages
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/pages${cleanPath}.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/pages${cleanPath}/index.html`);
+
+        // 4. SPA Fallback for pure client-side routers
         urlsToTry.push(`${BASE_PATH}/${subdomain}/index.html`);
+        urlsToTry.push(`${BASE_PATH}/${subdomain}/server/app/index.html`);
     }
 
     try {
@@ -89,10 +111,10 @@ app.use(async (req, res) => {
                     continue;
                 }
 
-                if (contentType) {
-                    res.setHeader('Content-Type', contentType);
-                } else if (s3Url.endsWith('.html')) {
+                if (s3Url.endsWith('.html')) {
                     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                } else if (contentType) {
+                    res.setHeader('Content-Type', contentType);
                 }
 
                 res.setHeader('Cache-Control', 'public, max-age=3600');
